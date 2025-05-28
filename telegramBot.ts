@@ -1,18 +1,21 @@
 import { Bot, GrammyError, HttpError } from "grammy";
-import dotenv from 'dotenv';
 import OpenAI from "openai";
 
-const token = process.env['TELEGRAM_BOT_TOKEN'];
-if (!token) throw new Error('TELEGRAM_BOT_TOKEN is not set');
-const bot = new Bot(token);
+require('dotenv').config();
 
+const telegramToken = process.env['TELEGRAM_BOT_TOKEN'];
+if (!telegramToken) throw new Error('TELEGRAM_BOT_TOKEN is not set');
+const bot = new Bot(telegramToken);
+
+// test ids
 const enabledIds = [307438771];
 
-dotenv.config();
+const openaiToken = process.env['OPENAI_API_KEY'];
+if (!openaiToken) throw new Error('OPENAI_API_KEY is not set');
 
 // OpenAIApi required config
 const client = new OpenAI({
-  apiKey: process.env['OPENAI_API_KEY'],
+  apiKey: openaiToken,
 });
 
 bot.command("profile", async (ctx) => {

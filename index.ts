@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 require("./telegramBot");
 
-dotenv.config();
+require('dotenv').config();
 
 const app: Application = express();
 const port = process.env.PORT || 3000;

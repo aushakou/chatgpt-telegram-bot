@@ -1,4 +1,5 @@
 import { Bot, GrammyError, HttpError } from "grammy";
+import { run, sequentialize } from "@grammyjs/runner";
 import OpenAI from "openai";
 import dotenv from 'dotenv';
 
@@ -21,6 +22,10 @@ if (!openaiToken) throw new Error('OPENAI_API_KEY is not set');
 const client = new OpenAI({
   apiKey: openaiToken,
 });
+
+// grammY provides the sequentialize middleware that ensures that
+// messages from the same chat are handled sequentially, preventing race conditions
+bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
 bot.command("profile", async (ctx) => {
   const timestamp = new Date();
@@ -49,9 +54,7 @@ bot.command("profile", async (ctx) => {
   }
  });
 
-// This function would be added to the dispatcher as a handler for messages coming from the Bot API
 bot.on("message", async (ctx) => {
-  // Print to console
   console.log(
     `${ctx.from.first_name} wrote ${
       "text" in ctx.message ? ctx.message.text : ""
@@ -150,4 +153,6 @@ bot.catch((err) => {
   });
 
 // Start the Bot
-bot.start();
+// grammyjs/runner plugin enables concurrent processing of updates,
+// allowing telegram bot to handle multiple user interactions in parallel without interference
+run(bot);

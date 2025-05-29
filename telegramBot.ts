@@ -1,7 +1,10 @@
 import { Bot, GrammyError, HttpError } from "grammy";
 import OpenAI from "openai";
+import dotenv from 'dotenv';
 
-require('dotenv').config();
+import { Log } from './models/Log';
+
+dotenv.config();
 
 const telegramToken = process.env['TELEGRAM_BOT_TOKEN'];
 if (!telegramToken) throw new Error('TELEGRAM_BOT_TOKEN is not set');
@@ -20,6 +23,19 @@ const client = new OpenAI({
 });
 
 bot.command("profile", async (ctx) => {
+  const timestamp = new Date();
+  try {
+    const logEntry = new Log({
+      username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+      userid: ctx.message?.chat.id.toString() || 'unknown',
+      message: ctx.message?.text || 'unknown',
+      timestamp,
+    });
+    await logEntry.save();
+    console.log('Message logged to MongoDB');
+  } catch (error) {
+    console.error('Error saving log:', error);
+  }
   const message = ctx.message;
   if (message) {
     const chatId = message.chat.id;
@@ -42,6 +58,20 @@ bot.on("message", async (ctx) => {
       "text" in ctx.message ? ctx.message.text : ""
     }`,
   );
+
+  const timestamp = new Date();
+  try {
+    const logEntry = new Log({
+      username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+      userid: ctx.message?.chat.id.toString() || 'unknown',
+      message: ctx.message?.text || 'unknown',
+      timestamp,
+    });
+    await logEntry.save();
+    console.log('Message logged to MongoDB');
+  } catch (error) {
+    console.error('Error saving log:', error);
+  }
 
   if (ctx.message.text && enabledIds.includes(ctx.message.chat.id)) {
     let m = ".";
@@ -81,6 +111,19 @@ bot.on("message", async (ctx) => {
     } finally {
       running = false;
       clearInterval(interval);
+    }
+
+    try {
+      const logEntry = new Log({
+        username: 'ChatGPT',
+        userid: ctx.message.chat.id.toString(),
+        message: response.output_text || 'unknown',
+        timestamp,
+      });
+      await logEntry.save();
+      console.log('Message logged to MongoDB');
+    } catch (error) {
+      console.error('Error saving log:', error);
     }
 
     // Final message

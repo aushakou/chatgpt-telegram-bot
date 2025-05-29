@@ -32,7 +32,6 @@ bot.command("profile", async (ctx) => {
       timestamp,
     });
     await logEntry.save();
-    console.log('Message logged to MongoDB');
   } catch (error) {
     console.error('Error saving log:', error);
   }
@@ -68,7 +67,6 @@ bot.on("message", async (ctx) => {
       timestamp,
     });
     await logEntry.save();
-    console.log('Message logged to MongoDB');
   } catch (error) {
     console.error('Error saving log:', error);
   }
@@ -121,7 +119,6 @@ bot.on("message", async (ctx) => {
         timestamp,
       });
       await logEntry.save();
-      console.log('Message logged to MongoDB');
     } catch (error) {
       console.error('Error saving log:', error);
     }

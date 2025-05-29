@@ -7,8 +7,9 @@ const telegramToken = process.env['TELEGRAM_BOT_TOKEN'];
 if (!telegramToken) throw new Error('TELEGRAM_BOT_TOKEN is not set');
 const bot = new Bot(telegramToken);
 
-// test ids
-const enabledIds = [307438771];
+const enabledIds = process.env.ENABLED_IDS
+  ? process.env.ENABLED_IDS.split(',').map(id => parseInt(id.trim(), 10))
+  : [];
 
 const openaiToken = process.env['OPENAI_API_KEY'];
 if (!openaiToken) throw new Error('OPENAI_API_KEY is not set');
@@ -33,9 +34,9 @@ bot.command("profile", async (ctx) => {
   }
  });
 
-//This function would be added to the dispatcher as a handler for messages coming from the Bot API
+// This function would be added to the dispatcher as a handler for messages coming from the Bot API
 bot.on("message", async (ctx) => {
-  //Print to console
+  // Print to console
   console.log(
     `${ctx.from.first_name} wrote ${
       "text" in ctx.message ? ctx.message.text : ""
@@ -71,6 +72,10 @@ bot.on("message", async (ctx) => {
       response = await client.responses.create({
         model: 'gpt-4o',
         instructions: '',
+        tools: [ {
+          type: "web_search_preview",
+          search_context_size: "low",
+         } ],
         input: ctx.message.text,
       });
     } finally {
@@ -104,5 +109,5 @@ bot.catch((err) => {
     }
   });
 
-//Start the Bot
+// Start the Bot
 bot.start();

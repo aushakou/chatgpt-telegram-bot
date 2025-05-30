@@ -2,8 +2,10 @@ import { Bot, GrammyError, HttpError } from "grammy";
 import { run, sequentialize } from "@grammyjs/runner";
 import OpenAI from "openai";
 import dotenv from 'dotenv';
-
+import { Session } from './models/Session';
 import { Log } from './models/Log';
+import { User } from './models/User';
+import { Message } from './models/Message';
 
 dotenv.config();
 
@@ -29,6 +31,24 @@ bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
 bot.command("profile", async (ctx) => {
   const timestamp = new Date();
+  const session = await Session.findOne({ userId: ctx.from?.id.toString() });
+  if (!session) {
+    const newSession = new Session({
+      userId: ctx.from?.id.toString(),
+      createdAt: timestamp,
+    });
+    await newSession.save();
+  }
+  const user = await User.findOne({ telegramId: ctx.from?.id.toString() });
+  if (!user) {
+    const newUser = new User({
+      username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+      telegramId: ctx.from?.id?.toString() || 'unknown',
+      createdAt: timestamp,
+      apiAccess: enabledIds.includes(Number(ctx.from?.id)),
+    });
+    await newUser.save();
+  }
   try {
     const logEntry = new Log({
       username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
@@ -62,6 +82,7 @@ bot.on("message", async (ctx) => {
   );
 
   const timestamp = new Date();
+
   try {
     const logEntry = new Log({
       username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
@@ -94,24 +115,107 @@ bot.on("message", async (ctx) => {
         );
       } catch (err) {
         console.error("Failed to edit message:", err);
+        if (err instanceof GrammyError && err.description.includes('Too Many Requests')) {
+          running = false; // Stop animation if we hit rate limit
+        }
       }
-    }, 500); // update every 500ms
+    }, 2000);
 
     // Await the response while the animation is running
     let response;
     try {
-      response = await client.responses.create({
-        model: 'gpt-4o',
-        instructions: '',
-        tools: [ {
-          type: "web_search_preview",
-          search_context_size: "low",
-         } ],
-        input: ctx.message.text,
+      // Use Promise.all for parallel operations
+      const [session, user] = await Promise.all([
+        Session.findOne({ userId: ctx.from?.id.toString() }),
+        User.findOne({ telegramId: ctx.from?.id.toString() })
+      ]);
+  
+      // Create session and user if they don't exist
+      const [newSession, newUser] = await Promise.all([
+        !session ? new Session({
+          userId: ctx.from?.id.toString(),
+          createdAt: timestamp,
+        }).save() : session,
+        !user ? new User({
+          username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+          telegramId: ctx.from?.id?.toString() || 'unknown',
+          createdAt: timestamp,
+          apiAccess: enabledIds.includes(Number(ctx.from?.id)),
+        }).save() : user
+      ]);
+  
+      // Create message with the guaranteed session and user
+      const message = new Message({
+        session: newSession._id,
+        sender: newUser._id,
+        content: ctx.message?.text || 'unknown',
+        createdAt: timestamp,
       });
-    } finally {
+      await message.save();
+    } catch (error) {
+      console.error('Error in database operations:', error);
+    }
+    if (process.env.OPENAI_API_ENABLED === 'true') {
+      try {
+        response = await client.responses.create({
+          model: 'gpt-4o',
+          instructions: '',
+          tools: [ {
+            type: "web_search_preview",
+            search_context_size: "low",
+          } ],
+          input: ctx.message.text,
+        });
+      } finally {
+        running = false;
+        clearInterval(interval);
+      }
+    } else {
       running = false;
       clearInterval(interval);
+      response = {
+        output_text: 'Sorry, ChatGPT API is disabled. New update is in progress!',
+      };
+    }
+
+    try {
+      // Final message
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        sentMessage.message_id,
+        response.output_text,
+        { parse_mode: "Markdown" }
+      );
+      // Use Promise.all for parallel operations
+      const [session, user] = await Promise.all([
+        Session.findOne({ userId: ctx.from?.id.toString() }),
+        User.findOne({ telegramId: "ChatGPT" })
+      ]);
+  
+      // Create session and user if they don't exist
+      const [newSession, newUser] = await Promise.all([
+        !session ? new Session({
+          userId: ctx.from?.id.toString(),
+          createdAt: timestamp,
+        }).save() : session,
+        !user ? new User({
+          username: "ChatGPT",
+          telegramId: "ChatGPT",
+          createdAt: timestamp,
+          apiAccess: false
+        }).save() : user
+      ]);
+  
+      // Create message with the guaranteed session and user
+      const message = new Message({
+        session: newSession._id,
+        sender: newUser._id,
+        content: response.output_text || 'unknown',
+        createdAt: timestamp,
+      });
+      await message.save();
+    } catch (error) {
+      console.error('Error in database operations:', error);
     }
 
     try {
@@ -125,14 +229,6 @@ bot.on("message", async (ctx) => {
     } catch (error) {
       console.error('Error saving log:', error);
     }
-
-    // Final message
-    await ctx.api.editMessageText(
-      ctx.chat.id,
-      sentMessage.message_id,
-      response.output_text,
-      { parse_mode: "Markdown" }
-    );
   } else {
     await ctx.reply("User is not authorized to use this bot.");
   }

@@ -5,6 +5,7 @@ interface IUser extends Document {
   telegramId: string;
   createdAt: Date;
   apiAccess: boolean;
+  totalMessages: number;
 }
 
 const userSchema = new Schema<IUser>({
@@ -12,6 +13,7 @@ const userSchema = new Schema<IUser>({
   telegramId:    { type: String, required: true, unique: true },
   createdAt:{ type: Date, default: Date.now },
   apiAccess: { type: Boolean, default: false },
+  totalMessages: { type: Number, default: 0 },
 });
 
 export const User = model<IUser>('User', userSchema);

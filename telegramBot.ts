@@ -31,24 +31,30 @@ bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
 bot.command("profile", async (ctx) => {
   const timestamp = new Date();
-  const session = await Session.findOne({ userId: ctx.from?.id.toString() });
-  if (!session) {
-    const newSession = new Session({
+  const [session, user] = await Promise.all([
+    Session.findOne({ userId: ctx.from?.id.toString(), status: 'active' }),
+    User.findOne({ telegramId: ctx.from?.id.toString() })
+  ]);
+  if (session) {
+    if (session.startTime.getTime() < timestamp.getTime() - 1000 * 60 * 60 * parseInt(process.env.SESSION_TIMEOUT_HOURS || '5')) {
+      session.status = 'ended';
+      await session.save();
+    }
+  }
+  // Create session and user if they don't exist
+  const [newSession, newUser] = await Promise.all([
+    !session || session.status === 'ended' ? new Session({
       userId: ctx.from?.id.toString(),
       createdAt: timestamp,
-    });
-    await newSession.save();
-  }
-  const user = await User.findOne({ telegramId: ctx.from?.id.toString() });
-  if (!user) {
-    const newUser = new User({
+    }).save() : session,
+    !user ? new User({
       username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
       telegramId: ctx.from?.id?.toString() || 'unknown',
       createdAt: timestamp,
       apiAccess: enabledIds.includes(Number(ctx.from?.id)),
-    });
-    await newUser.save();
-  }
+    }).save() : user
+  ]);
+
   try {
     const logEntry = new Log({
       username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
@@ -66,7 +72,8 @@ bot.command("profile", async (ctx) => {
     const m = "Profile\n"
             + "Name: " + ctx.from.first_name + " " + ctx.from.last_name + "\n"
             + "ID: " + chatId + "\n"
-            + "Bot access: " + enabledIds.includes(chatId);
+            + "Bot access: " + enabledIds.includes(chatId) + "\n"
+            + "Total messages: " + newUser?.totalMessages;
     console.log(m);
     await ctx.reply(m);
   } else {
@@ -119,20 +126,27 @@ bot.on("message", async (ctx) => {
           running = false; // Stop animation if we hit rate limit
         }
       }
-    }, 2000);
+    }, 1000);
 
     // Await the response while the animation is running
     let response;
+    let messageWithContext = ctx.message?.text;
     try {
       // Use Promise.all for parallel operations
       const [session, user] = await Promise.all([
-        Session.findOne({ userId: ctx.from?.id.toString() }),
+        Session.findOne({ userId: ctx.from?.id.toString(), status: 'active' }),
         User.findOne({ telegramId: ctx.from?.id.toString() })
       ]);
   
+      if (session) {
+        if (session.startTime.getTime() < timestamp.getTime() - 1000 * 60 * 60 * parseInt(process.env.SESSION_TIMEOUT_HOURS || '5')) {
+          session.status = 'ended';
+          await session.save();
+        }
+      }
       // Create session and user if they don't exist
       const [newSession, newUser] = await Promise.all([
-        !session ? new Session({
+        !session || session.status === 'ended' ? new Session({
           userId: ctx.from?.id.toString(),
           createdAt: timestamp,
         }).save() : session,
@@ -143,7 +157,16 @@ bot.on("message", async (ctx) => {
           apiAccess: enabledIds.includes(Number(ctx.from?.id)),
         }).save() : user
       ]);
-  
+      newUser.totalMessages++;
+      await newUser.save();
+      const userMessageHistory = await Message.find({ 
+        session: newSession._id,
+        sender: newUser._id 
+      }).sort({ createdAt: 1 }).limit(100);
+      const assistantMessageHistory = await Message.find({ 
+        session: newSession._id,
+        sender: (await User.findOne({ telegramId: "ChatGPT" }))?._id
+      }).sort({ createdAt: 1 }).limit(100);
       // Create message with the guaranteed session and user
       const message = new Message({
         session: newSession._id,
@@ -152,6 +175,19 @@ bot.on("message", async (ctx) => {
         createdAt: timestamp,
       });
       await message.save();
+      
+      if (userMessageHistory.length > 0) {
+        messageWithContext = "Earlier conversation:\n";
+        for (let i = 0; i < userMessageHistory.length; i++) {
+          if (userMessageHistory[i]) {
+            messageWithContext += "User: " + userMessageHistory[i].content + "\n";
+          }
+          if (assistantMessageHistory[i]) {
+            messageWithContext += "Assistant: " + assistantMessageHistory[i].content + "\n";
+          }
+        }
+        messageWithContext += "\nCurrent question:\n" + ctx.message?.text;
+      }
     } catch (error) {
       console.error('Error in database operations:', error);
     }
@@ -164,7 +200,7 @@ bot.on("message", async (ctx) => {
             type: "web_search_preview",
             search_context_size: "low",
           } ],
-          input: ctx.message.text,
+          input: messageWithContext,
         });
       } finally {
         running = false;

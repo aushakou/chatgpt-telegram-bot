@@ -241,11 +241,11 @@ bot.on("message", async (ctx) => {
     if (process.env.OPENAI_API_ENABLED === 'true') {
       try {
         response = await client.responses.create({
-          model: 'gpt-4o',
+          model: 'gpt-4.1',
           instructions: '',
           tools: [ {
             type: "web_search_preview",
-            search_context_size: "low",
+            search_context_size: "medium",
           } ],
           input: messageWithContext,
         });

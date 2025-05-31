@@ -55,17 +55,6 @@ bot.command("profile", async (ctx) => {
     }).save() : user
   ]);
 
-  try {
-    const logEntry = new Log({
-      username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
-      userid: ctx.message?.chat.id.toString() || 'unknown',
-      message: ctx.message?.text || 'unknown',
-      timestamp,
-    });
-    await logEntry.save();
-  } catch (error) {
-    console.error('Error saving log:', error);
-  }
   const message = ctx.message;
   if (message) {
     const chatId = message.chat.id;
@@ -76,9 +65,62 @@ bot.command("profile", async (ctx) => {
             + "Total messages: " + newUser?.totalMessages;
     console.log(m);
     await ctx.reply(m);
+    try {
+      const logEntry = new Log({
+        username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+        userid: ctx.message?.chat.id.toString() || 'unknown',
+        message: ctx.message?.text + "\n" + m || 'unknown',
+        timestamp,
+      });
+      await logEntry.save();
+    } catch (error) {
+      console.error('Error saving log:', error);
+    }
   } else {
     await ctx.reply("Error. Message is undefined.");
   }
+ });
+
+ bot.command("top", async (ctx) => {
+  const timestamp = new Date();
+  const users = await User.find({}).sort({ totalMessages: -1 }).limit(10);
+  let m = "Top users:\n";
+  for (const user of users) {
+    if (user.username !== "ChatGPT") {
+      m += user.username + ": " + user.totalMessages + "\n";
+    }
+  }
+  await ctx.reply(m);
+  console.log(m);
+  try {
+    const logEntry = new Log({
+      username: ctx.from?.first_name + ' ' + ctx.from?.last_name || 'unknown',
+      userid: ctx.message?.chat.id.toString() || 'unknown',
+      message: ctx.message?.text + "\n" + m || 'unknown',
+      timestamp,
+    });
+    await logEntry.save();
+  } catch (error) {
+    console.error('Error saving log:', error);
+  }
+ });
+
+ bot.command("newsession", async (ctx) => {
+  const timestamp = new Date();
+  const [session, user] = await Promise.all([
+    Session.findOne({ userId: ctx.from?.id.toString(), status: 'active' }),
+    User.findOne({ telegramId: ctx.from?.id.toString() })
+  ]);
+  if (session) {
+    session.status = 'ended';
+    await session.save();
+  }
+  const newSession = new Session({
+    userId: ctx.from?.id.toString(),
+    createdAt: timestamp,
+  });
+  await newSession.save();
+  await ctx.reply("New session created.");
  });
 
 bot.on("message", async (ctx) => {
@@ -157,8 +199,13 @@ bot.on("message", async (ctx) => {
           apiAccess: enabledIds.includes(Number(ctx.from?.id)),
         }).save() : user
       ]);
+
       newUser.totalMessages++;
       await newUser.save();
+
+      newSession.messageCount++;
+      await newSession.save();
+
       const userMessageHistory = await Message.find({ 
         session: newSession._id,
         sender: newUser._id 
@@ -224,7 +271,7 @@ bot.on("message", async (ctx) => {
       );
       // Use Promise.all for parallel operations
       const [session, user] = await Promise.all([
-        Session.findOne({ userId: ctx.from?.id.toString() }),
+        Session.findOne({ userId: ctx.from?.id.toString(), status: 'active' }),
         User.findOne({ telegramId: "ChatGPT" })
       ]);
   
